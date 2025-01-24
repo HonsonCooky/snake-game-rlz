@@ -3,7 +3,7 @@ const rl = @import("raylib");
 
 const screenWidth = 960;
 const screenHeight = 720;
-const TileSize = 15;
+const TileSize = 30;
 const MapWidth = screenWidth / TileSize;
 const MapHeight = screenHeight / TileSize;
 
@@ -15,13 +15,29 @@ const IVector2 = struct {
 const Apple = struct {
     position: IVector2,
 
+    pub fn init() Apple {
+        return Apple{
+            .position = IVector2{
+                .x = rl.getRandomValue(0, MapWidth) * TileSize,
+                .y = rl.getRandomValue(0, MapHeight) * TileSize,
+            },
+        };
+    }
+
+    pub fn eat(self: *Apple) void {
+        self.position = IVector2{
+            .x = rl.getRandomValue(0, MapWidth) * TileSize,
+            .y = rl.getRandomValue(0, MapHeight) * TileSize,
+        };
+    }
+
     pub fn draw(self: *Apple) void {
         rl.drawRectangle(
             self.position.x,
             self.position.y,
             TileSize,
             TileSize,
-            rl.Color.red,
+            rl.Color.fromInt(0xf38ba8ff),
         );
     }
 };
@@ -53,7 +69,7 @@ const SnakeNode = struct {
             self.position.y,
             TileSize,
             TileSize,
-            rl.Color.blue,
+            rl.Color.fromInt(0xa6e3a1ff),
         );
     }
 };
@@ -136,6 +152,9 @@ const Player = struct {
 
     fn warpWalls(newPos: *IVector2) void {
         if (newPos.x < 0) newPos.x = (MapWidth - 1) * TileSize;
+        if (newPos.x > ((MapWidth - 1) * TileSize)) newPos.x = 0;
+        if (newPos.y < 0) newPos.y = (MapHeight - 1) * TileSize;
+        if (newPos.y > (MapHeight - 1) * TileSize) newPos.y = 0;
     }
 
     pub fn move(self: *Player) void {
@@ -165,14 +184,18 @@ pub fn main() !void {
     rl.initWindow(screenWidth, screenHeight, "Snake Game");
     defer rl.closeWindow();
 
+    rl.setTargetFPS(60);
+
     const gameAlloc = std.heap.page_allocator;
     var player = try Player.init(gameAlloc);
     defer player.free();
 
+    var apple = Apple.init();
+
     for (0..3) |_| try player.addNode();
 
     var timeSinceMove: f32 = 0;
-    const movementTime = 0.1;
+    const movementTime = 0.05;
 
     // Main Game Loop
     while (!rl.windowShouldClose()) {
@@ -186,6 +209,24 @@ pub fn main() !void {
                 player.move();
             }
 
+            const playerRec = rl.Rectangle{
+                .height = TileSize,
+                .width = TileSize,
+                .x = @floatFromInt(player.head.position.x),
+                .y = @floatFromInt(player.head.position.y),
+            };
+            const appleRec = rl.Rectangle{
+                .height = TileSize,
+                .width = TileSize,
+                .x = @floatFromInt(apple.position.x),
+                .y = @floatFromInt(apple.position.y),
+            };
+
+            if (rl.checkCollisionRecs(playerRec, appleRec)) {
+                try player.addNode();
+                apple.eat();
+            }
+
             break :update;
         }
 
@@ -193,9 +234,11 @@ pub fn main() !void {
             rl.beginDrawing();
             defer rl.endDrawing();
 
-            rl.clearBackground(rl.Color.white);
+            rl.clearBackground(rl.Color.fromInt(0x1e1e2eff));
+            rl.drawFPS(10, 10);
 
             player.draw();
+            apple.draw();
 
             break :draw;
         }
