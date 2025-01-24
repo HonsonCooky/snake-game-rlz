@@ -1,11 +1,21 @@
 const std = @import("std");
 const rl = @import("raylib");
 
+const gameAlloc = std.heap.page_allocator;
 const screenWidth = 960;
 const screenHeight = 720;
 const TileSize = 30;
 const MapWidth = screenWidth / TileSize;
 const MapHeight = screenHeight / TileSize;
+
+const GameState = enum {
+    menu,
+    play,
+    end,
+    quit,
+};
+
+var gameState = GameState.menu;
 
 const IVector2 = struct {
     x: i32,
@@ -89,13 +99,18 @@ const Player = struct {
                 .y = (MapHeight / 2) * TileSize,
             },
         };
-        return Player{
+
+        var player = Player{
             .head = head,
             .length = 1,
             ._direction = IVector2{ .x = 0, .y = 0 },
             ._nextDirection = IVector2{ .x = 0, .y = 0 },
             ._nodeAllocator = allocator,
         };
+
+        for (0..3) |_| try player.addNode();
+
+        return player;
     }
 
     pub fn addNode(self: *Player) !void {
@@ -167,7 +182,11 @@ const Player = struct {
 
         warpWalls(&newPos);
 
-        if (self.collisionWithSelf(newPos)) return;
+        const hasMoved = self._direction.x != 0 or self._direction.y != 0;
+        if (self.collisionWithSelf(newPos) and hasMoved) {
+            gameState = GameState.end;
+            return;
+        }
 
         self.head.move(newPos);
     }
@@ -177,70 +196,186 @@ const Player = struct {
     }
 };
 
-pub fn main() !void {
-    std.debug.print("{} {} {} {}", .{ MapHeight, MapWidth, screenHeight, screenWidth });
-    rl.setConfigFlags(.{ .vsync_hint = true });
+fn menu(player: *Player, apple: *Apple) !void {
+    if (player.length > 4) {
+        std.debug.print("HERE", .{});
+        player.free();
+        player.* = try Player.init(gameAlloc);
+        apple.eat();
+    }
 
+    draw: {
+        rl.beginDrawing();
+        defer rl.endDrawing();
+
+        rl.clearBackground(rl.Color.fromInt(0x1e1e2eff));
+        const mousePosition = rl.getMousePosition();
+
+        // Play Button
+        const pBtnRec =
+            rl.Rectangle{
+            .width = screenWidth / 2.0,
+            .height = screenHeight / 10.0,
+            .x = screenWidth / 4.0,
+            .y = screenHeight / 3.0,
+        };
+        const hoveringPBtn = rl.checkCollisionPointRec(mousePosition, pBtnRec);
+        const pBtnColor = rl.Color.fromInt(if (hoveringPBtn) 0xf9e2afff else 0xfab387ff);
+        rl.drawRectangleRounded(pBtnRec, 0.5, 10, pBtnColor);
+        rl.drawText(
+            "Play",
+            (screenWidth / 2) - rl.measureText("Pl", screenHeight / 20.0),
+            (screenHeight / 3.0) + (screenHeight / 40.0),
+            screenHeight / 20.0,
+            rl.Color.fromInt(0x1e1e2eff),
+        );
+
+        if (rl.isMouseButtonPressed(rl.MouseButton.left) and hoveringPBtn) {
+            gameState = GameState.play;
+        }
+
+        // Quit Button
+        const qBtnRec =
+            rl.Rectangle{
+            .width = screenWidth / 2.0,
+            .height = screenHeight / 10.0,
+            .x = screenWidth / 4.0,
+            .y = screenHeight * 2 / 3.0,
+        };
+        const hoveringQBtn = rl.checkCollisionPointRec(mousePosition, qBtnRec);
+        const qBtnColor = rl.Color.fromInt(if (hoveringQBtn) 0xf9e2afff else 0xfab387ff);
+        rl.drawRectangleRounded(qBtnRec, 0.5, 10, qBtnColor);
+        rl.drawText(
+            "Quit",
+            (screenWidth / 2) - rl.measureText("Qu", screenHeight / 20.0),
+            (screenHeight * 2 / 3.0) + (screenHeight / 40.0),
+            screenHeight / 20.0,
+            rl.Color.fromInt(0x1e1e2eff),
+        );
+
+        if (rl.isMouseButtonPressed(rl.MouseButton.left) and hoveringQBtn) {
+            gameState = GameState.quit;
+        }
+
+        break :draw;
+    }
+}
+
+fn play(player: *Player, apple: *Apple, timeSinceMove: *f32) !void {
+    update: {
+        player.update();
+
+        if (timeSinceMove.* < 0.1) {
+            timeSinceMove.* += rl.getFrameTime();
+        } else {
+            timeSinceMove.* = 0;
+            player.move();
+        }
+
+        const playerRec = rl.Rectangle{
+            .height = TileSize,
+            .width = TileSize,
+            .x = @floatFromInt(player.head.position.x),
+            .y = @floatFromInt(player.head.position.y),
+        };
+        const appleRec = rl.Rectangle{
+            .height = TileSize,
+            .width = TileSize,
+            .x = @floatFromInt(apple.position.x),
+            .y = @floatFromInt(apple.position.y),
+        };
+
+        if (rl.checkCollisionRecs(playerRec, appleRec)) {
+            try player.addNode();
+            apple.eat();
+        }
+
+        break :update;
+    }
+
+    draw: {
+        rl.beginDrawing();
+        defer rl.endDrawing();
+
+        rl.clearBackground(rl.Color.fromInt(0x1e1e2eff));
+        rl.drawFPS(10, 10);
+
+        player.draw();
+        apple.draw();
+
+        break :draw;
+    }
+}
+
+fn end(player: *Player) !void {
+    const mousePosition = rl.getMousePosition();
+
+    draw: {
+        rl.beginDrawing();
+        defer rl.endDrawing();
+
+        rl.clearBackground(rl.Color.fromInt(0x1e1e2eff));
+
+        // Score Text
+        var scoreBuf: [14]u8 = undefined;
+        const scoreStr = try std.fmt.bufPrint(&scoreBuf, "Score: {d}", .{player.length});
+
+        rl.drawText(
+            @ptrCast(scoreStr),
+            screenWidth / 4.0,
+            (screenHeight / 3.0) + (screenHeight / 40.0),
+            screenHeight / 20.0,
+            rl.Color.fromInt(0xcdd6f4ff),
+        );
+
+        // Quit Button
+        const mBtnRec =
+            rl.Rectangle{
+            .width = screenWidth / 2.0,
+            .height = screenHeight / 10.0,
+            .x = screenWidth / 4.0,
+            .y = screenHeight * 2 / 3.0,
+        };
+        const hoveringMBtn = rl.checkCollisionPointRec(mousePosition, mBtnRec);
+        const mBtnColor = rl.Color.fromInt(if (hoveringMBtn) 0xf9e2afff else 0xfab387ff);
+        rl.drawRectangleRounded(mBtnRec, 0.5, 10, mBtnColor);
+        rl.drawText(
+            "Menu",
+            (screenWidth / 2) - rl.measureText("Me", screenHeight / 20.0),
+            (screenHeight * 2 / 3.0) + (screenHeight / 40.0),
+            screenHeight / 20.0,
+            rl.Color.fromInt(0x1e1e2eff),
+        );
+
+        if (rl.isMouseButtonPressed(rl.MouseButton.left) and hoveringMBtn) {
+            gameState = GameState.menu;
+        }
+        break :draw;
+    }
+}
+
+pub fn main() !void {
+    rl.setConfigFlags(.{ .vsync_hint = true });
     rl.initWindow(screenWidth, screenHeight, "Snake Game");
     defer rl.closeWindow();
-
+    rl.setExitKey(rl.KeyboardKey.null);
     rl.setTargetFPS(60);
 
-    const gameAlloc = std.heap.page_allocator;
+    // Init Player
     var player = try Player.init(gameAlloc);
     defer player.free();
 
     var apple = Apple.init();
 
-    for (0..3) |_| try player.addNode();
-
     var timeSinceMove: f32 = 0;
-    const movementTime = 0.05;
 
     // Main Game Loop
-    while (!rl.windowShouldClose()) {
-        update: {
-            player.update();
-
-            if (timeSinceMove < movementTime) {
-                timeSinceMove += rl.getFrameTime();
-            } else {
-                timeSinceMove = 0;
-                player.move();
-            }
-
-            const playerRec = rl.Rectangle{
-                .height = TileSize,
-                .width = TileSize,
-                .x = @floatFromInt(player.head.position.x),
-                .y = @floatFromInt(player.head.position.y),
-            };
-            const appleRec = rl.Rectangle{
-                .height = TileSize,
-                .width = TileSize,
-                .x = @floatFromInt(apple.position.x),
-                .y = @floatFromInt(apple.position.y),
-            };
-
-            if (rl.checkCollisionRecs(playerRec, appleRec)) {
-                try player.addNode();
-                apple.eat();
-            }
-
-            break :update;
-        }
-
-        draw: {
-            rl.beginDrawing();
-            defer rl.endDrawing();
-
-            rl.clearBackground(rl.Color.fromInt(0x1e1e2eff));
-            rl.drawFPS(10, 10);
-
-            player.draw();
-            apple.draw();
-
-            break :draw;
-        }
+    while (!rl.windowShouldClose() and gameState != GameState.quit) {
+        try switch (gameState) {
+            .menu => menu(&player, &apple),
+            .play => play(&player, &apple, &timeSinceMove),
+            .end => end(&player),
+            .quit => return,
+        };
     }
 }
