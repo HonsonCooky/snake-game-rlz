@@ -28,16 +28,16 @@ const Apple = struct {
     pub fn init() Apple {
         return Apple{
             .position = IVector2{
-                .x = rl.getRandomValue(0, MapWidth) * TileSize,
-                .y = rl.getRandomValue(0, MapHeight) * TileSize,
+                .x = rl.getRandomValue(0, MapWidth - 1) * TileSize,
+                .y = rl.getRandomValue(0, MapHeight - 1) * TileSize,
             },
         };
     }
 
     pub fn eat(self: *Apple) void {
         self.position = IVector2{
-            .x = rl.getRandomValue(0, MapWidth) * TileSize,
-            .y = rl.getRandomValue(0, MapHeight) * TileSize,
+            .x = rl.getRandomValue(0, MapWidth - 1) * TileSize,
+            .y = rl.getRandomValue(0, MapHeight - 1) * TileSize,
         };
     }
 
@@ -263,6 +263,11 @@ fn menu(player: *Player, apple: *Apple) !void {
 
 fn play(player: *Player, apple: *Apple, timeSinceMove: *f32) !void {
     update: {
+        if (rl.isKeyPressed(rl.KeyboardKey.escape)) {
+            gameState = GameState.end;
+            return;
+        }
+
         player.update();
 
         if (timeSinceMove.* < 0.1) {
@@ -318,7 +323,7 @@ fn end(player: *Player) !void {
 
         // Score Text
         var scoreBuf: [14]u8 = undefined;
-        const scoreStr = try std.fmt.bufPrint(&scoreBuf, "Score: {d}", .{player.length});
+        const scoreStr = try std.fmt.bufPrint(&scoreBuf, "Score: {}", .{player.length});
 
         rl.drawText(
             @ptrCast(scoreStr),
@@ -328,7 +333,7 @@ fn end(player: *Player) !void {
             rl.Color.fromInt(0xcdd6f4ff),
         );
 
-        // Quit Button
+        // Menu Button
         const mBtnRec =
             rl.Rectangle{
             .width = screenWidth / 2.0,
