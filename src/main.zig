@@ -322,12 +322,13 @@ fn end(player: *Player) !void {
         rl.clearBackground(rl.Color.fromInt(0x1e1e2eff));
 
         // Score Text
-        var scoreBuf: [14]u8 = undefined;
-        const scoreStr = try std.fmt.bufPrint(&scoreBuf, "Score: {}", .{player.length});
+        const scoreStr = rl.textFormat("Score: %i", .{player.length});
+        const xPos = @as(f32, screenWidth / 2.0) -
+            (@as(f32, @floatFromInt(rl.measureText(scoreStr, 20))) / 2.0);
 
         rl.drawText(
-            @ptrCast(scoreStr),
-            screenWidth / 4.0,
+            scoreStr,
+            @intFromFloat(xPos),
             (screenHeight / 3.0) + (screenHeight / 40.0),
             screenHeight / 20.0,
             rl.Color.fromInt(0xcdd6f4ff),
